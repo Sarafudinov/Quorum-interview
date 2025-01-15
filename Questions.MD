@@ -41,7 +41,7 @@
     - Use an ORM like SQLAlchemy or Django ORM to model data and fetch necessary fields dynamically.
 
 4. **Adapt the CSV Writing Logic**:
-    - Dynamically generate `fieldnames` based on the attributes of objects.
+    - Dynamically generate `field_names` based on the attributes of objects.
 
 ---
 
