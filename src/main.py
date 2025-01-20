@@ -1,81 +1,98 @@
-import os
 import csv
 from pathlib import Path
 from typing import List, Dict, Any
 from reader import DataReader
 
 
-def process_data(
-    data_type: str,  # 'legislators' or 'bills'
-    items: List[Dict[str, str]],
-    votes: List[Dict[str, str]],
-    vote_results: List[Dict[str, str]],
-    legislators: List[Dict[str, str]] = None,  # Added to get sponsor names for bills
+def read_csv(file_path: Path) -> List[Dict[str, str]]:
+    """
+    Reads a CSV file and returns a list of dictionaries.
+
+    :param file_path: Path to the CSV file.
+    :return: List of dictionaries representing rows in the CSV file.
+    """
+    with open(file_path, mode="r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        return [row for row in reader]
+
+
+def process_legislators(
+    legislators: List[Dict[str, str]], vote_results: List[Dict[str, str]]
 ) -> Dict[int, Dict[str, Any]]:
     """
-    Processes data for either legislators or bills' support and opposition.
+    Processes legislators' voting records, calculating the number of supported and opposed bills.
 
-    :param data_type: The type of data to process ('legislators' or 'bills').
-    :param items: List of items (legislators or bills).
-    :param votes: List of votes.
-    :param vote_results: List of vote results.
-    :param legislators: List of legislators (only required for processing bills to get sponsor names).
-    :return: Dictionary with either legislator or bill statistics.
+    :param legislators: List of legislators with their details.
+    :param vote_results: List of vote results linking legislators to their votes.
+    :return: Dictionary mapping legislator IDs to their statistics.
     """
-    if data_type == "legislators":
-        stats = {
-            int(item["id"]): {
-                "id": int(item["id"]),
-                "name": item["name"],
-                "num_supported_bills": 0,
-                "num_opposed_bills": 0,
-            }
-            for item in items
+    stats: Dict[int, Dict[str, Any]] = {
+        int(leg["id"]): {
+            "id": int(leg["id"]),
+            "name": leg["name"],
+            "num_supported_bills": 0,
+            "num_opposed_bills": 0,
         }
-    elif data_type == "bills":
-        stats = {
-            int(item["id"]): {
-                "id": int(item["id"]),
-                "title": item["title"],
-                "primary_sponsor": item["sponsor_id"],
-                "num_supporting_legislators": 0,
-                "num_opposing_legislators": 0,
-            }
-            for item in items
-        }
-
-        # Add sponsor names to bills
-        if legislators:
-            sponsor_map = {int(leg["id"]): leg["name"] for leg in legislators}
-            for bill in stats.values():
-                bill["primary_sponsor"] = sponsor_map.get(
-                    bill["primary_sponsor"], "Unknown"
-                )
-    else:
-        raise ValueError("Invalid data_type, should be 'legislators' or 'bills'.")
-
-    # Map votes to their results
-    vote_map: Dict[int, Dict[str, str]] = {
-        int(vote_result["vote_id"]): vote_result for vote_result in vote_results
+        for leg in legislators
     }
 
-    # Process votes and update stats
-    for vote in votes:
-        vote_id = int(vote["id"])
-        if vote_id in vote_map:
-            vote_type = int(vote_map[vote_id]["vote_type"])
-            if data_type == "legislators":
-                item_id = int(vote_map[vote_id]["legislator_id"])
-                if vote_type == 1:  # Yes
-                    stats[item_id]["num_supported_bills"] += 1
-                elif vote_type == 2:  # No
-                    stats[item_id]["num_opposed_bills"] += 1
-            elif data_type == "bills":
-                item_id = int(vote["bill_id"])
-                if vote_type == 1:  # Yes
-                    stats[item_id]["num_supporting_legislators"] += 1
-                elif vote_type == 2:  # No
-                    stats[item_id]["num_opposing_legislators"] += 1
+    for vote in vote_results:
+        legislator_id = int(vote["legislator_id"])
+        vote_type = int(vote["vote_type"])
+        if legislator_id in stats:
+            if vote_type == 1:
+                stats[legislator_id]["num_supported_bills"] += 1
+            elif vote_type == 2:
+                stats[legislator_id]["num_opposed_bills"] += 1
+
+    return stats
+
+
+def process_bills(
+    bills: List[Dict[str, str]],
+    votes: List[Dict[str, str]],
+    vote_results: List[Dict[str, str]],
+    legislators: List[Dict[str, str]],
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Processes bills to count the number of supporters and opposers.
+
+    :param bills: List of bills with their details.
+    :param votes: List of votes linking to bills.
+    :param vote_results: List of vote results linking legislators to votes.
+    :param legislators: List of legislators.
+    :return: Dictionary mapping bill IDs to their statistics.
+    """
+    stats: Dict[int, Dict[str, Any]] = {
+        int(bill["id"]): {
+            "id": int(bill["id"]),
+            "title": bill["title"],
+            "primary_sponsor": "Unknown",
+            "supporter_count": 0,
+            "opposer_count": 0,
+        }
+        for bill in bills
+    }
+
+    # Map legislator IDs to names for primary sponsor lookup
+    sponsor_map: Dict[int, str] = {int(leg["id"]): leg["name"] for leg in legislators}
+    for bill in bills:
+        bill_id = int(bill["id"])
+        sponsor_id = int(bill["sponsor_id"])
+        stats[bill_id]["primary_sponsor"] = sponsor_map.get(sponsor_id, "Unknown")
+
+    # Map vote IDs to bill IDs
+    vote_map: Dict[int, int] = {int(vote["id"]): int(vote["bill_id"]) for vote in votes}
+
+    for vote in vote_results:
+        vote_id = int(vote["vote_id"])
+        bill_id = vote_map.get(vote_id)
+        vote_type = int(vote["vote_type"])
+        if bill_id in stats:
+            if vote_type == 1:
+                stats[bill_id]["supporter_count"] += 1
+            elif vote_type == 2:
+                stats[bill_id]["opposer_count"] += 1
 
     return stats
 
@@ -84,7 +101,7 @@ def write_csv(
     file_path: Path, data: Dict[int, Dict[str, Any]], fieldnames: List[str]
 ) -> None:
     """
-    Writes data to a CSV file.
+    Writes processed data to a CSV file.
 
     :param file_path: Path to the output CSV file.
     :param data: Dictionary of data to write.
@@ -98,15 +115,15 @@ def write_csv(
 
 
 if __name__ == "__main__":
-    # Dynamically determine paths
-    base_dir = Path(__file__).resolve().parent.parent  # Navigate to project root
-    data_dir = base_dir / "data"
-    output_dir = base_dir / "output"
+    # Define base directories
+    base_dir: Path = Path(__file__).resolve().parent.parent  # Project root
+    data_dir: Path = base_dir / "data"
+    output_dir: Path = base_dir / "output"
 
-    # Ensure output directory exists
+    # Ensure the output directory exists
     output_dir.mkdir(exist_ok=True)
 
-    # Reading data
+    # Read input data from CSV files
     legislators: List[Dict[str, str]] = DataReader.read_csv(
         data_dir / "legislators.csv"
     )
@@ -116,15 +133,15 @@ if __name__ == "__main__":
         data_dir / "vote_results.csv"
     )
 
-    # Process data
-    legislator_stats: Dict[int, Dict[str, Any]] = process_data(
-        "legislators", legislators, votes, vote_results
+    # Process the data
+    legislator_stats: Dict[int, Dict[str, Any]] = process_legislators(
+        legislators, vote_results
     )
-    bill_stats: Dict[int, Dict[str, Any]] = process_data(
-        "bills", bills, votes, vote_results, legislators
+    bill_stats: Dict[int, Dict[str, Any]] = process_bills(
+        bills, votes, vote_results, legislators
     )
 
-    # Write outputs
+    # Write results to CSV files
     write_csv(
         output_dir / "legislators-support-oppose-count.csv",
         legislator_stats,
@@ -133,11 +150,5 @@ if __name__ == "__main__":
     write_csv(
         output_dir / "bills-support-oppose-count.csv",
         bill_stats,
-        [
-            "id",
-            "title",
-            "primary_sponsor",
-            "num_supporting_legislators",
-            "num_opposing_legislators",
-        ],
+        ["id", "title", "supporter_count", "opposer_count", "primary_sponsor"],
     )
