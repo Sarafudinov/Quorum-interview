@@ -4,18 +4,6 @@ from typing import List, Dict, Any
 from reader import DataReader
 
 
-def read_csv(file_path: Path) -> List[Dict[str, str]]:
-    """
-    Reads a CSV file and returns a list of dictionaries.
-
-    :param file_path: Path to the CSV file.
-    :return: List of dictionaries representing rows in the CSV file.
-    """
-    with open(file_path, mode="r", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-        return [row for row in reader]
-
-
 def process_legislators(
     legislators: List[Dict[str, str]], vote_results: List[Dict[str, str]]
 ) -> Dict[int, Dict[str, Any]]:
